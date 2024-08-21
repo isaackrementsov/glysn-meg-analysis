@@ -1,39 +1,41 @@
-import matplotlib
-import matplotlib.pyplot as plt
-
-import seaborn as sns
-
 import os
 import pandas as pd
 import numpy as np
 
 import mne
-from mne.minimum_norm import apply_inverse, make_inverse_operator
-from mne.decoding import GeneralizingEstimator
+from mne.decoding import SlidingEstimator, cross_val_multiscore
 
 from sklearn.utils._testing import ignore_warnings
 from sklearn.exceptions import ConvergenceWarning
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
-from sklearn.linear_model import Ridge, LogisticRegression
-from sklearn.model_selection import KFold, StratifiedKFold
-from sklearn.metrics import make_scorer, roc_auc_score
-from sklearn.decomposition import PCA, FactorAnalysis
-from sklearn.manifold import TSNE
-from sklearn.cluster import SpectralClustering, KMeans
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold
 
-from scipy.stats import spearmanr
-
-import multiprocess as mp
 import dill
 # Required for multiprocess to work in Jupyter notebook
 dill.settings['recurse'] = True
 
 import spacy
 
+MERGED_SCORES_LOCATION = "merged_pos_scores.npy"
 SUB_DATA_DIR = os.environ['SCRATCH']
-N_THREADS = 16
+N_THREADS = 32
+N_SPLITS = 5
+T_LIMIT = 20
+
+# Useful constants for the rest of the code
+sub_ids = os.listdir(SUB_DATA_DIR)
+# Not sure why but this subject's data isn't loading properly
+sub_ids.remove("A0281")
+n_subs = len(sub_ids)
+
+def cutoff(n_times):
+    if T_LIMIT:
+        return min(n_times, T_LIMIT)
+    else:
+        return n_times
 
 @ignore_warnings(category=ConvergenceWarning) # So scikit wont print thousands of convergence warnings
 def get_perf_timecourse(X, y, decoder, perf_metric, n_splits=5):
@@ -116,18 +118,10 @@ def get_data(sub_id, segment='phoneme'):
 
     return stim_features, sub_data
 
-# Useful constants for the rest of the code
-sub_ids = os.listdir(SUB_DATA_DIR)
-# Not sure why but this subject's data isn't loading properly
-sub_ids.remove("A0281")
-n_subs = len(sub_ids)
-
 print("Getting initial sub data")
 initial_stim_features, initial_sub_data = get_data(sub_ids[0], segment="word")
 print("Done!")
 tpoints = initial_sub_data.shape[-1]
-pos_types = np.unique(initial_stim_features[:,0])
-
 # Recordings were -1000ms to 1000ms, relative to the phoneme/word presented, collected at 161 points
 t = np.linspace(-1000, 1000, tpoints)
 
@@ -144,26 +138,34 @@ def index_of(cond):
 def at_t(t_point):
     return index_of(t == t_point)
 
-def get_pos_scores(sub_id):    
-    stim_features, sub_data = get_data(sub_id, segment='word')
-    
+def get_pos_scores(sub_id, segment="word", feature=0, classes=None):
     logistic_decoder = make_pipeline(
         StandardScaler(),
         LogisticRegression()
     )
-    
-    pos = stim_features[:, 0]
+
+    estimator = SlidingEstimator(logistic_decoder, n_jobs=N_THREADS, scoring='roc_auc') # check whether this can be here
+    validator = StratifiedKFold(n_splits=N_SPLITS)
+
+    stim_features, sub_data = get_data(sub_id, segment=segment)
+    labels = stim_features[:, feature]
+
+    if classes is None:
+        classes = np.unique(labels)
+
+        # If it's already a binary classification problem, we only need to check for one class
+        if len(classes) == 2:
+            classes = classes[:1]
     
     sub_scores = { }
 
-    for pos_type in pos_types:
-        sub_scores[pos_type] = get_perf_timecourse(sub_data, (pos == pos_type).astype(int), logistic_decoder, roc_auc_score)
-    
-    del pos, sub_data, stim_features
+    for cl in classes:
+        binary_labels = (labels == cl).astype(int)
+        slice = cutoff(sub_data.shape[-1])
+        estimated_scores = cross_val_multiscore(estimator, X=sub_data[:,:,:slice], y=binary_labels, cv=validator)
+        sub_scores[cl] = estimated_scores.mean(axis=0)  
 
     return sub_scores
-
-MERGED_SCORES_LOCATION = "merged_pos_scores.npy"
 
 def save_merged_scores(merged_scores):
     np.save(MERGED_SCORES_LOCATION, merged_scores)
@@ -188,22 +190,10 @@ merged_sub_scores, empty = load_merged_scores()
 # If merged scores have not already been saved, generate them (this takes a long time)
 print("Empty?", empty)
 if empty:
-    output = []
-
-    try:
-        #print("Running tasks...")
-        pool = mp.Pool(N_THREADS)
-        output = pool.map(get_pos_scores, sub_ids)
-        # for sub_id in sub_ids:
-        #     output.append(get_pos_scores(sub_id))
-    except KeyboardInterrupt as e:
-        pass
-    finally:
-        pool.terminate()
-        pool.join()
+    output = map(get_pos_scores, sub_ids)
 
     for i in range(n_subs):
-        for pos_type in pos_types:
-            merged_sub_scores[pos_type][i] = output[i][pos_type]
+        for cl in output[i]:
+            merged_sub_scores[cl][i] = output[i][cl]
             
     save_merged_scores(merged_sub_scores)
