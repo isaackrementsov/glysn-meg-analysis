@@ -32,6 +32,9 @@ dill.settings['recurse'] = True
 
 import spacy
 
+SUB_DATA_DIR = os.environ['SCRATCH']
+N_THREADS = 16
+
 @ignore_warnings(category=ConvergenceWarning) # So scikit wont print thousands of convergence warnings
 def get_perf_timecourse(X, y, decoder, perf_metric, n_splits=5):
     n_times = X.shape[-1]
@@ -97,7 +100,7 @@ def get_data(sub_id, segment='phoneme'):
         fif_name = 'start_word_-1000_-1000_dcm5_BLNone_hpf60_rep0-epo.fif'
         features = ['pos']
 
-    base_path = f'./story_sub_data/{sub_id}/{segment}_epochs'
+    base_path = f'{SUB_DATA_DIR}/{sub_id}/{segment}_epochs'
 
     fif = mne.read_epochs(f'{base_path}/{fif_name}')
     
@@ -114,14 +117,16 @@ def get_data(sub_id, segment='phoneme'):
     return stim_features, sub_data
 
 # Useful constants for the rest of the code
-sub_ids = os.listdir("./story_sub_data")
+sub_ids = os.listdir(SUB_DATA_DIR)
 # Not sure why but this subject's data isn't loading properly
 sub_ids.remove("A0281")
 n_subs = len(sub_ids)
 
+print("Getting initial sub data")
 initial_stim_features, initial_sub_data = get_data(sub_ids[0], segment="word")
+print("Done!")
 tpoints = initial_sub_data.shape[-1]
-pos_types = ['DET', 'ADJ'] #np.unique(initial_stim_features[:,0])
+pos_types = np.unique(initial_stim_features[:,0])
 
 # Recordings were -1000ms to 1000ms, relative to the phoneme/word presented, collected at 161 points
 t = np.linspace(-1000, 1000, tpoints)
@@ -181,15 +186,16 @@ def load_merged_scores():
 merged_sub_scores, empty = load_merged_scores()
 
 # If merged scores have not already been saved, generate them (this takes a long time)
+print("Empty?", empty)
 if empty:
     output = []
 
     try:
-        pool = mp.Pool(8)
+        #print("Running tasks...")
+        pool = mp.Pool(N_THREADS)
         output = pool.map(get_pos_scores, sub_ids)
         # for sub_id in sub_ids:
         #     output.append(get_pos_scores(sub_id))
-
     except KeyboardInterrupt as e:
         pass
     finally:
