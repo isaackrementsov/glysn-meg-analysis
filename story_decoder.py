@@ -36,7 +36,14 @@ if not sys.warnoptions:
     os.environ["PYTHONWARNINGS"] = "ignore" 
 
 MERGED_SCORES_LOCATION = "merged_pos_scores.npy"
-SUB_DATA_DIR = os.environ['SCRATCH']
+# Generate suffixed path if this file is duplicated
+def gen_location(i):
+    if i == 0:
+        return MERGED_SCORES_LOCATION
+    else:
+        return MERGED_SCORES_LOCATION.replace(".npy", f"-{i}.npy")
+
+SUB_DATA_DIR = "C:/Users/isaac/Code/surp/story_sub_data"#os.environ['SCRATCH']
 N_THREADS = 64
 N_SPLITS = 5
 T_LIMIT = None
@@ -144,9 +151,6 @@ print("Done!")
 
 pos_types = np.unique(initial_stim_features[:,0])
 
-if len(sys.argv) > 1:
-    pos_types = sys.argv[1:]
-
 tpoints = initial_sub_data.shape[-1]
 # Recordings were -1000ms to 1000ms, relative to the phoneme/word presented, collected at 161 points
 t = np.linspace(-1000, 1000, tpoints)
@@ -199,38 +203,44 @@ def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
 def save_merged_scores(merged_scores):
     np.save(MERGED_SCORES_LOCATION, merged_scores)
 
-def load_merged_scores():
-    empty = not os.path.isfile(MERGED_SCORES_LOCATION)
+def load_merged_scores(location=MERGED_SCORES_LOCATION):
+    print("Loading from..", location)
+    empty = not os.path.isfile(location)
     merged_sub_scores = {
         pos_type: np.zeros((n_subs, tpoints)) for pos_type in pos_types
     }
     
     if not empty:
         try:
-            merged_sub_scores = np.load(MERGED_SCORES_LOCATION, allow_pickle=True).item()
+            merged_sub_scores = np.load(location, allow_pickle=True).item()
         except Exception:
             empty = True
             return merged_sub_scores, empty
     
     return merged_sub_scores, empty
 
-merged_sub_scores, empty = load_merged_scores()
+def generate_merged_scores(i):
+    merged_sub_scores, empty = load_merged_scores(gen_location(i))
 
-# If merged scores have not already been saved, generate them (this takes a long time)
-if empty:
-    def sub_scores_task(sub_id):
-        if len(sys.argv) > 1:
-            return get_sub_scores(sub_id, classes=sys.argv[1:])
-        else:
-            return get_sub_scores(sub_id)
+    # If merged scores have not already been saved, generate them (this takes a long time)
+    if empty:
+        def sub_scores_task(sub_id):
+            if len(sys.argv) > 1:
+                return get_sub_scores(sub_id, classes=sys.argv[1:])
+            else:
+                return get_sub_scores(sub_id)
 
-    pool = mp.Pool(N_SUB_THREADS)
-    output = pool.map(sub_scores_task, sub_ids)
+        pool = mp.Pool(N_SUB_THREADS)
+        output = pool.map(sub_scores_task, sub_ids)
 
-    for i in range(n_subs):
-        for cl in output[i]:
-            merged_sub_scores[cl][i] = output[i][cl]
-            
-    save_merged_scores(merged_sub_scores)
-    pool.terminate()
-    pool.join()
+        for i in range(n_subs):
+            for cl in output[i]:
+                merged_sub_scores[cl][i] = output[i][cl]
+                
+        save_merged_scores(merged_sub_scores)
+        pool.terminate()
+        pool.join()
+    else:
+        generate_merged_scores(i + 1)
+
+generate_merged_scores(0)
