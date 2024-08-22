@@ -200,8 +200,8 @@ def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
 
     return sub_scores
 
-def save_merged_scores(merged_scores):
-    np.save(MERGED_SCORES_LOCATION, merged_scores)
+def save_merged_scores(merged_scores, location=MERGED_SCORES_LOCATION):
+    np.save(location, merged_scores)
 
 def load_merged_scores(location=MERGED_SCORES_LOCATION):
     print("Loading from..", location)
@@ -220,7 +220,8 @@ def load_merged_scores(location=MERGED_SCORES_LOCATION):
     return merged_sub_scores, empty
 
 def generate_merged_scores(i):
-    merged_sub_scores, empty = load_merged_scores(gen_location(i))
+    location = gen_location(i)
+    merged_sub_scores, empty = load_merged_scores(location)
 
     # If merged scores have not already been saved, generate them (this takes a long time)
     if empty:
@@ -237,7 +238,7 @@ def generate_merged_scores(i):
             for cl in output[i]:
                 merged_sub_scores[cl][i] = output[i][cl]
                 
-        save_merged_scores(merged_sub_scores)
+        save_merged_scores(merged_sub_scores, location)
         pool.terminate()
         pool.join()
     else:
