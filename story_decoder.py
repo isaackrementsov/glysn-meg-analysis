@@ -1,4 +1,5 @@
 import os
+import sys
 import pandas as pd
 import numpy as np
 
@@ -12,24 +13,43 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
+from sklearn.exceptions import ConvergenceWarning
+from sklearn.utils._testing import ignore_warnings
 
+import multiprocess as mp
 import dill
 # Required for multiprocess to work in Jupyter notebook
 dill.settings['recurse'] = True
 
 import spacy
 
+def warn(*args, **kwargs):
+    pass
+
+import warnings
+
+warnings.warn = warn
+warnings.filterwarnings("ignore", category=ConvergenceWarning)
+
+if not sys.warnoptions:
+    warnings.simplefilter("ignore")
+    os.environ["PYTHONWARNINGS"] = "ignore" 
+
 MERGED_SCORES_LOCATION = "merged_pos_scores.npy"
 SUB_DATA_DIR = os.environ['SCRATCH']
-N_THREADS = 32
+N_THREADS = 64
 N_SPLITS = 5
-T_LIMIT = 20
+T_LIMIT = None
 
 # Useful constants for the rest of the code
 sub_ids = os.listdir(SUB_DATA_DIR)
 # Not sure why but this subject's data isn't loading properly
 sub_ids.remove("A0281")
 n_subs = len(sub_ids)
+
+N_SUB_THREADS = 2
+N_CLASS_THREADS = 1
+N_DECODING_THREADS = N_THREADS // (N_SUB_THREADS * N_CLASS_THREADS) + 1
 
 def cutoff(n_times):
     if T_LIMIT:
@@ -79,7 +99,7 @@ def get_pos(sentence):
             in_current_word = in_current_word and token.text not in words[i + 1]
         
         if in_current_word and i > 0:
-            pos[i] = pos[i] + '-' + token.pos_
+            pos[i] = token.pos_
         else:
             i += 1
             pos.append(token.pos_)
@@ -121,6 +141,12 @@ def get_data(sub_id, segment='phoneme'):
 print("Getting initial sub data")
 initial_stim_features, initial_sub_data = get_data(sub_ids[0], segment="word")
 print("Done!")
+
+pos_types = np.unique(initial_stim_features[:,0])
+
+if len(sys.argv) > 1:
+    pos_types = sys.argv[1:]
+
 tpoints = initial_sub_data.shape[-1]
 # Recordings were -1000ms to 1000ms, relative to the phoneme/word presented, collected at 161 points
 t = np.linspace(-1000, 1000, tpoints)
@@ -138,13 +164,14 @@ def index_of(cond):
 def at_t(t_point):
     return index_of(t == t_point)
 
-def get_pos_scores(sub_id, segment="word", feature=0, classes=None):
+@ignore_warnings(category=ConvergenceWarning)
+def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
     logistic_decoder = make_pipeline(
         StandardScaler(),
         LogisticRegression()
     )
 
-    estimator = SlidingEstimator(logistic_decoder, n_jobs=N_THREADS, scoring='roc_auc') # check whether this can be here
+    estimator = SlidingEstimator(logistic_decoder, n_jobs=N_DECODING_THREADS, scoring='roc_auc') # check whether this can be here
     validator = StratifiedKFold(n_splits=N_SPLITS)
 
     stim_features, sub_data = get_data(sub_id, segment=segment)
@@ -157,12 +184,14 @@ def get_pos_scores(sub_id, segment="word", feature=0, classes=None):
         if len(classes) == 2:
             classes = classes[:1]
     
+    del stim_features
+    
     sub_scores = { }
 
     for cl in classes:
         binary_labels = (labels == cl).astype(int)
-        slice = cutoff(sub_data.shape[-1])
-        estimated_scores = cross_val_multiscore(estimator, X=sub_data[:,:,:slice], y=binary_labels, cv=validator)
+        t_slice = cutoff(sub_data.shape[-1])
+        estimated_scores = cross_val_multiscore(estimator, X=sub_data[:,:,:t_slice], y=binary_labels, cv=validator)
         sub_scores[cl] = estimated_scores.mean(axis=0)  
 
     return sub_scores
@@ -188,12 +217,20 @@ def load_merged_scores():
 merged_sub_scores, empty = load_merged_scores()
 
 # If merged scores have not already been saved, generate them (this takes a long time)
-print("Empty?", empty)
 if empty:
-    output = map(get_pos_scores, sub_ids)
+    def sub_scores_task(sub_id):
+        if len(sys.argv) > 1:
+            return get_sub_scores(sub_id, classes=sys.argv[1:])
+        else:
+            return get_sub_scores(sub_id)
+
+    pool = mp.Pool(N_SUB_THREADS)
+    output = pool.map(sub_scores_task, sub_ids)
 
     for i in range(n_subs):
         for cl in output[i]:
             merged_sub_scores[cl][i] = output[i][cl]
             
     save_merged_scores(merged_sub_scores)
+    pool.terminate()
+    pool.join()
