@@ -1,5 +1,6 @@
 import os
 import sys
+from multiprocessing import Pool
 import pandas as pd
 import numpy as np
 
@@ -16,7 +17,6 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.utils._testing import ignore_warnings
 
-import multiprocess as mp
 import dill
 # Required for multiprocess to work in Jupyter notebook
 dill.settings['recurse'] = True
@@ -44,14 +44,14 @@ def gen_location(i):
         return MERGED_SCORES_LOCATION.replace(".npy", f"-{i}.npy")
 
 SUB_DATA_DIR = "C:/Users/isaac/Code/surp/story_sub_data"#os.environ['SCRATCH']
-N_THREADS = 64
+N_THREADS = 48
 N_SPLITS = 5
 T_LIMIT = None
 
 # Useful constants for the rest of the code
 sub_ids = os.listdir(SUB_DATA_DIR)
 # Not sure why but this subject's data isn't loading properly
-sub_ids.remove("A0281")
+#sub_ids.remove("A0281")
 n_subs = len(sub_ids)
 
 N_SUB_THREADS = 2
@@ -200,48 +200,41 @@ def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
 
     return sub_scores
 
-def save_merged_scores(merged_scores, location=MERGED_SCORES_LOCATION):
-    np.save(location, merged_scores)
-
-def load_merged_scores(location=MERGED_SCORES_LOCATION):
-    print("Loading from..", location)
-    empty = not os.path.isfile(location)
-    merged_sub_scores = {
+def blank_sub_scores():
+    return {
         pos_type: np.zeros((n_subs, tpoints)) for pos_type in pos_types
     }
     
-    if not empty:
-        try:
-            merged_sub_scores = np.load(location, allow_pickle=True).item()
-        except Exception:
-            empty = True
-            return merged_sub_scores, empty
+def save_merged_scores(merged_scores):
+    i = 0
+    location = MERGED_SCORES_LOCATION
+
+    while os.path.isfile(location):
+        i += 1
+        location = gen_location(i)
     
-    return merged_sub_scores, empty
+    np.save(location, merged_scores)
 
-def generate_merged_scores(i):
-    location = gen_location(i)
-    merged_sub_scores, empty = load_merged_scores(location)
 
-    # If merged scores have not already been saved, generate them (this takes a long time)
-    if empty:
-        def sub_scores_task(sub_id):
-            if len(sys.argv) > 1:
-                return get_sub_scores(sub_id, classes=sys.argv[1:])
-            else:
-                return get_sub_scores(sub_id)
-
-        pool = mp.Pool(N_SUB_THREADS)
-        output = pool.map(sub_scores_task, sub_ids)
-
-        for i in range(n_subs):
-            for cl in output[i]:
-                merged_sub_scores[cl][i] = output[i][cl]
-                
-        save_merged_scores(merged_sub_scores, location)
-        pool.terminate()
-        pool.join()
+def sub_scores_task(sub_id):
+    if len(sys.argv) > 1:
+        return get_sub_scores(sub_id, classes=sys.argv[1:])
     else:
-        generate_merged_scores(i + 1)
+        return get_sub_scores(sub_id)
 
-generate_merged_scores(0)
+def generate_merged_scores():
+    merged_sub_scores = blank_sub_scores()
+
+    pool = Pool(N_SUB_THREADS)
+    output = pool.map(sub_scores_task, sub_ids)
+
+    for i in range(n_subs):
+        for cl in output[i]:
+            merged_sub_scores[cl][i] = output[i][cl]
+            
+    save_merged_scores(merged_sub_scores)
+    pool.terminate()
+    pool.join()
+
+if __name__ == '__main__':
+    generate_merged_scores()
