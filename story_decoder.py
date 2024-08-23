@@ -51,7 +51,7 @@ T_LIMIT = None
 # Useful constants for the rest of the code
 sub_ids = os.listdir(SUB_DATA_DIR)
 # Not sure why but this subject's data isn't loading properly
-#sub_ids.remove("A0281")
+sub_ids.remove("A0281")
 n_subs = len(sub_ids)
 
 N_SUB_THREADS = 2
