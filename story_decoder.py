@@ -43,8 +43,8 @@ def gen_location(i):
     else:
         return MERGED_SCORES_LOCATION.replace(".npy", f"-{i}.npy")
 
-SUB_DATA_DIR = "C:/Users/isaac/Code/surp/story_sub_data"#os.environ['SCRATCH']
-N_THREADS = 48
+SUB_DATA_DIR = os.environ['SCRATCH']
+N_THREADS = 32
 N_SPLITS = 5
 T_LIMIT = None
 
@@ -172,7 +172,7 @@ def at_t(t_point):
 def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
     logistic_decoder = make_pipeline(
         StandardScaler(),
-        LogisticRegression()
+        LogisticRegression(C=1e-4)
     )
 
     estimator = SlidingEstimator(logistic_decoder, n_jobs=N_DECODING_THREADS, scoring='roc_auc') # check whether this can be here
