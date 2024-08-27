@@ -54,9 +54,9 @@ sub_ids = os.listdir(SUB_DATA_DIR)
 #sub_ids.remove("A0281")
 n_subs = len(sub_ids)
 
-N_SUB_THREADS = 2
+N_SUB_THREADS = 4
 N_CLASS_THREADS = 1
-N_DECODING_THREADS = N_THREADS // (N_SUB_THREADS * N_CLASS_THREADS) + 1
+N_DECODING_THREADS = int(np.ceil(N_THREADS / (N_SUB_THREADS * N_CLASS_THREADS)))
 
 def cutoff(n_times):
     if T_LIMIT:
@@ -146,10 +146,10 @@ def get_data(sub_id, segment='phoneme'):
     return stim_features, sub_data
 
 print("Getting initial sub data")
-initial_stim_features, initial_sub_data = get_data(sub_ids[0], segment="word")
+initial_stim_features, initial_sub_data = get_data(sub_ids[0])
 print("Done!")
 
-pos_types = np.unique(initial_stim_features[:,0])
+phoneme_types = np.unique(initial_stim_features[:,1])
 
 tpoints = initial_sub_data.shape[-1]
 # Recordings were -1000ms to 1000ms, relative to the phoneme/word presented, collected at 161 points
@@ -202,7 +202,7 @@ def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
 
 def blank_sub_scores():
     return {
-        pos_type: np.zeros((n_subs, tpoints)) for pos_type in pos_types
+        phoneme_type: np.zeros((n_subs, tpoints)) for phoneme_type in phoneme_types
     }
     
 def save_merged_scores(merged_scores):
@@ -218,9 +218,9 @@ def save_merged_scores(merged_scores):
 
 def sub_scores_task(sub_id):
     if len(sys.argv) > 1:
-        return get_sub_scores(sub_id, segment="phoneme", feature=0, classes=sys.argv[1:])
+        return get_sub_scores(sub_id, segment="phoneme", feature=1, classes=sys.argv[1:])
     else:
-        return get_sub_scores(sub_id, segment="phoneme", feature=0)
+        return get_sub_scores(sub_id, segment="phoneme", feature=1)
 
 def generate_merged_scores():
     merged_sub_scores = blank_sub_scores()

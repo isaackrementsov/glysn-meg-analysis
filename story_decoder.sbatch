@@ -2,7 +2,7 @@
 #SBATCH --job-name=story_decoder
 #SBATCH --output=story_decoder.%j.out
 #SBATCH --error=story_decoder.%j.err
-#SBATCH --time=6:00:00
+#SBATCH --time=8:00:00
 #SBATCH -p normal
 #SBATCH -c 32
 #SBATCH --mem=128GB

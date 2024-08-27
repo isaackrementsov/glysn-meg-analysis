@@ -47,6 +47,8 @@ SUB_DATA_DIR = os.environ['SCRATCH']
 N_THREADS = 32
 N_SPLITS = 5
 T_LIMIT = None
+# Inverse of regularization strength
+REGULARIZATION_COEFF = 1e-2
 
 # Useful constants for the rest of the code
 sub_ids = os.listdir(SUB_DATA_DIR)
@@ -172,7 +174,7 @@ def at_t(t_point):
 def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
     logistic_decoder = make_pipeline(
         StandardScaler(),
-        LogisticRegression(C=1e-4)
+        LogisticRegression(C=REGULARIZATION_COEFF)
     )
 
     estimator = SlidingEstimator(logistic_decoder, n_jobs=N_DECODING_THREADS, scoring='roc_auc') # check whether this can be here

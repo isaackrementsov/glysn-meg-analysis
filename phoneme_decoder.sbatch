@@ -2,7 +2,7 @@
 #SBATCH --job-name=phoneme_decoder
 #SBATCH --output=phoneme_decoder.%j.out
 #SBATCH --error=phoneme_decoder.%j.err
-#SBATCH --time=2:00:00
+#SBATCH --time=1:15:00
 #SBATCH -p normal
 #SBATCH -c 32
 #SBATCH --mem=128GB
