@@ -43,10 +43,10 @@ def gen_location(i):
     else:
         return MERGED_SCORES_LOCATION.replace(".npy", f"-{i}.npy")
 
-SUB_DATA_DIR = os.environ['SCRATCH']
+SUB_DATA_DIR = "./story_sub_data"#os.environ['SCRATCH']
 N_THREADS = 32
 N_SPLITS = 5
-T_LIMIT = None
+T_LIMIT = 5
 
 # Useful constants for the rest of the code
 sub_ids = os.listdir(SUB_DATA_DIR)
@@ -54,7 +54,7 @@ sub_ids = os.listdir(SUB_DATA_DIR)
 #sub_ids.remove("A0281")
 n_subs = len(sub_ids)
 
-N_SUB_THREADS = 2
+N_SUB_THREADS = 1
 N_CLASS_THREADS = 1
 N_DECODING_THREADS = N_THREADS // (N_SUB_THREADS * N_CLASS_THREADS) + 1
 
@@ -191,7 +191,7 @@ def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
     del stim_features
     
     sub_scores = { }
-
+    print(classes)
     for cl in classes:
         binary_labels = (labels == cl).astype(int)
         t_slice = cutoff(sub_data.shape[-1])
@@ -202,7 +202,7 @@ def get_sub_scores(sub_id, segment="word", feature=0, classes=None):
 
 def blank_sub_scores():
     return {
-        pos_type: np.zeros((n_subs, tpoints)) for pos_type in pos_types
+        pos_type: np.zeros((n_subs, cutoff(tpoints))) for pos_type in pos_types
     }
     
 def save_merged_scores(merged_scores):
@@ -218,9 +218,9 @@ def save_merged_scores(merged_scores):
 
 def sub_scores_task(sub_id):
     if len(sys.argv) > 1:
-        return get_sub_scores(sub_id, segment="phoneme", feature=0, classes=sys.argv[1:])
+        return get_sub_scores(sub_id, segment="phoneme", feature=1, classes=sys.argv[1:])
     else:
-        return get_sub_scores(sub_id, segment="phoneme", feature=0)
+        return get_sub_scores(sub_id, segment="phoneme", feature=1)
 
 def generate_merged_scores():
     merged_sub_scores = blank_sub_scores()
